@@ -11,8 +11,13 @@ class ConvolutionalLayer(object):
     def __init__(self, filter_size=(3, 3), num_filters=128,
                  num_channels=3, step=(1, 1),
                  border_mode='valid', input_shape=(None, None)):
-        # WRITEME
-        pass
+        self.filter_size = filter_size
+        self.num_filters = num_filters
+        self.num_channels = num_channels
+        self.border_mode = border_mode
+        self.input_shape = input_shape
+
+        
 
     def apply(self, features):
         """Apply the convolution

@@ -1,12 +1,20 @@
-from theano import tensor
+import theano
+from theano import tensor as T
 from theano.tensor.nnet import sigmoid
 from blocks.utils import shared_floatx_zeros
 
+import numpy as np
 
 class LogisticRegressor(object):
+
     def __init__(self, input_dim):
+
         # WRITEME
-        pass
+        self.input_dim = input_dim
+        self.params = [shared_floatx_zeros((input_dim, 1)),
+                       shared_floatx_zeros((1,))]
+        self.w = self.params[0]
+        self.b = self.params[1]
 
     def get_probs(self, features):
         """Output the probability of being a positive.
@@ -23,8 +31,9 @@ class LogisticRegressor(object):
             The probabilities of each example to belong to
             the positive class. Must have shape (batch_size, 1)
         """
-        # WRITEME
-        pass
+
+        return T.nnet.sigmoid(theano.dot(features, self.w) + self.b)
+
 
     def get_params(self):
         """Returns the list of parameters of the model.
@@ -35,7 +44,8 @@ class LogisticRegressor(object):
             The list of shared variables that are parameters of the model.
         """
         # WRITEME
-        pass
+        #pass
+        return [self.w, self.b]
 
     def get_cost(self, probs, targets):
         """Output the logistic loss.
@@ -56,7 +66,9 @@ class LogisticRegressor(object):
             .. math:: -targets \log(probs) - (1 - targets) \log(1 - probs)
         """
         # WRITEME
-        pass
+        # pass
+        return  (-targets) * T.log(probs) - (1 - targets) * T.log(1 - probs)
+
 
     def get_misclassification(self, probs, targets):
         """Output the misclassification error.
@@ -81,4 +93,6 @@ class LogisticRegressor(object):
         """
 
         # WRITEME
-        pass
+        #pass
+        
+        return targets * (probs < 0.5) + (1 - targets) * (probs > 0.5) 
