@@ -3,12 +3,13 @@
 import logging
 from argparse import ArgumentParser
 
+import blocks
 import numpy
 import theano
 from theano import tensor
 from theano.sandbox.rng_mrg import MRG_RandomStreams
 from blocks.algorithms import (
-    GradientDescent, StepClipping, CompositeRule, Adam
+    GradientDescent, StepClipping, CompositeRule, Adam, Scale
 )
 from blocks.model import Model
 from blocks.extensions import FinishAfter, Timing, Printing
@@ -17,10 +18,10 @@ from blocks.main_loop import MainLoop
 from blocks.extensions import SimpleExtension
 from blocks.bricks import Linear, Tanh
 from blocks.bricks.lookup import LookupTable
-from blocks.bricks.recurrent import SimpleRecurrent
+from blocks.bricks.recurrent import SimpleRecurrent, LSTM
 from blocks.bricks.cost import CategoricalCrossEntropy, MisclassificationRate
 from blocks.graph import ComputationGraph
-from blocks.initialization import Uniform, Constant
+from blocks.initialization import Uniform, Constant, Orthogonal
 from fuel.streams import DataStream
 from fuel.transformers import Padding
 
@@ -92,16 +93,14 @@ def main(num_epochs=100):
     n_h = 100
     linear_embedding = LookupTable(
         length=n_voc,
-        dim=n_h,
+        dim=4*n_h,
         weights_init=Uniform(std=0.01),
         biases_init=Constant(0.)
     )
     linear_embedding.initialize()
-    lstm_biases = numpy.zeros(4 * n_h).astype(dtype=theano.config.floatX)
-    lstm_biases[n_h:(2 * n_h)] = 4.
-    rnn = SimpleRecurrent(
+    
+    rnn = LSTM(
         dim=n_h,
-        activation=Tanh(),
         weights_init=Uniform(std=0.01),
         biases_init=Constant(0.)
     )
@@ -118,7 +117,7 @@ def main(num_epochs=100):
                  * tensor.shape_padright(m.T[1:]))
     rnn_out = rnn.apply(inputs=embedding, mask=m.T[1:])
     probs = softmax(
-        sequence_map(score_layer.apply, rnn_out, mask=m.T[1:])[0]
+        sequence_map(score_layer.apply, rnn_out[0], mask=m.T[1:])[0]
     )
     idx_mask = m.T[1:].nonzero()
     cost = CategoricalCrossEntropy().apply(
@@ -138,7 +137,9 @@ def main(num_epochs=100):
     algorithm = GradientDescent(
         cost=cost,
         params=params,
-        step_rule=Adam()
+        step_rule=CompositeRule(
+            [StepClipping(10.),
+             Adam()])
     )
 
     train_data_stream = Padding(
@@ -170,22 +171,24 @@ def main(num_epochs=100):
     init_samples = (tensor.log(init_probs).dimshuffle(('x', 0))
                     + gumbel_noise[0]).argmax(axis=-1)
     init_states = rnn.initial_state('states', batch_size)
+    init_cells = rnn.initial_state('cells', batch_size)
 
-    def sampling_step(g_noise, states, samples_step):
+    def sampling_step(g_noise, states, cells, samples_step):
         embedding_step = linear_embedding.apply(samples_step)
-        next_states = rnn.apply(inputs=embedding_step,
+        next_states, next_cells = rnn.apply(inputs=embedding_step,
                                             states=states,
+                                            cells=cells,
                                             iterate=False)
         probs_step = softmax(score_layer.apply(next_states))
         next_samples = (tensor.log(probs_step)
                         + g_noise).argmax(axis=-1)
 
-        return next_states, next_samples
+        return next_states, next_cells, next_samples
 
-    [_, samples], _ = theano.scan(
+    [_, _, samples], _ = theano.scan(
         fn=sampling_step,
         sequences=[gumbel_noise[1:]],
-        outputs_info=[init_states, init_samples]
+        outputs_info=[init_states, init_cells, init_samples]
     )
 
     sampling = theano.function([], samples.owner.inputs[0].T)

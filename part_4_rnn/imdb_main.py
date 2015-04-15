@@ -16,7 +16,7 @@ from blocks.extensions.monitoring import (DataStreamMonitoring,
 from blocks.main_loop import MainLoop
 from blocks.bricks import Linear, Sigmoid
 from blocks.bricks.lookup import LookupTable
-from blocks.bricks.recurrent import LSTM
+from blocks.bricks.recurrent import LSTM, Bidirectional
 from blocks.graph import ComputationGraph
 from blocks.initialization import Uniform, Constant
 from fuel.streams import DataStream
@@ -51,7 +51,7 @@ def main(num_epochs=100):
     m = tensor.matrix('features_mask')
     y = tensor.imatrix('targets')
 
-    x_int = x.astype(dtype='int32').T
+    x_int = x.astype(dtype='int32').T - 2
     train_dataset = IMDB()
     idx_sort = numpy.argsort(
         [len(s) for s in
@@ -62,7 +62,7 @@ def main(num_epochs=100):
     for idx in xrange(len(train_dataset.sources)):
         train_dataset.indexables[idx] = train_dataset.indexables[idx][idx_sort]
 
-    n_h = 100
+    n_h = 10
     linear_embedding = LookupTable(
         length=n_voc,
         dim=4 * n_h,
@@ -72,14 +72,14 @@ def main(num_epochs=100):
     linear_embedding.initialize()
     lstm_biases = numpy.zeros(4 * n_h).astype(dtype=theano.config.floatX)
     lstm_biases[n_h:(2 * n_h)] = 4.
-    rnn = LSTM(
+    rnn = Bidirectional(LSTM(
         dim=n_h,
         weights_init=Uniform(std=0.01),
         biases_init=Constant(0.)
-    )
+    ))
     rnn.initialize()
     score_layer = Linear(
-        input_dim=n_h,
+        input_dim=2*n_h,
         output_dim=1,
         weights_init=Uniform(std=0.01),
         biases_init=Constant(0.)
@@ -88,7 +88,7 @@ def main(num_epochs=100):
 
     embedding = linear_embedding.apply(x_int) * tensor.shape_padright(m.T)
     rnn_out = rnn.apply(embedding)
-    rnn_out_mean_pooled = rnn_out[0][-1]
+    rnn_out_mean_pooled = tensor.mean(rnn_out[0], axis=0)
 
     probs = Sigmoid().apply(
         score_layer.apply(rnn_out_mean_pooled))
@@ -122,7 +122,7 @@ def main(num_epochs=100):
         data_stream=DataStream(
             dataset=train_dataset,
             iteration_scheme=BatchwiseShuffledScheme(
-                examples=range(n_train),
+                examples=range(100),
                 batch_size=10,
             )
         ),
@@ -132,7 +132,7 @@ def main(num_epochs=100):
         data_stream=DataStream(
             dataset=train_dataset,
             iteration_scheme=BatchwiseShuffledScheme(
-                examples=range(n_train, n_train + n_valid),
+                examples=range(100, 110),
                 batch_size=10,
             )
         ),
@@ -142,8 +142,7 @@ def main(num_epochs=100):
         data_stream=DataStream(
             dataset=train_dataset,
             iteration_scheme=BatchwiseShuffledScheme(
-                examples=range(n_train + n_valid,
-                               train_dataset.num_examples),
+                examples=range(110, 120),
                 batch_size=10,
             )
         ),
