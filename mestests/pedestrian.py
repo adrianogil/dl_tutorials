@@ -41,34 +41,35 @@ import theano
 from theano import tensor
 import blocks
 
-def GetPedestrianData(path):
-
-    pedestrianpath=path+'ped_examples'
-    nonpedestrianpath=path+'non-ped_examples'
-
-    pedestrian_fn_list = os.listdir(pedestrianpath)
-    nonpedestrian_fn_list = os.listdir(nonpedestrianpath)
+def GetPedestrianData(paths):
 
     ### Creating Forest Dataset ###
-
-    n_pedestrian = 4800
-    n_nonpedestrian = 5000
-    n_total = n_pedestrian + n_nonpedestrian
-
     pedestrian_imgs = []
     nonpedestrian_imgs = []
 
-    for fn in pedestrian_fn_list:
-        img_path = os.path.join(pedestrianpath, fn)
-        img = netpbdmfile.imread(img_path)
-        img = numpy.array(img)
-        pedestrian_imgs.append(img)
+    for path in paths:
+        pedestrianpath=path+'ped_examples/'
+        nonpedestrianpath=path+'non-ped_examples/'
 
-    for fn in nonpedestrian_fn_list:
-        img_path = os.path.join(nonpedestrianpath, fn)
-        img = netpbdmfile.imread(img_path)
-        img = numpy.array(img)
-        nonpedestrian_imgs.append(img)
+        pedestrian_fn_list = os.listdir(pedestrianpath)
+        nonpedestrian_fn_list = os.listdir(nonpedestrianpath)
+
+        for fn in pedestrian_fn_list:
+            img_path = os.path.join(pedestrianpath, fn)
+            img = netpbdmfile.imread(img_path)
+            img = numpy.array(img)
+            pedestrian_imgs.append(img)
+
+        for fn in nonpedestrian_fn_list:
+            img_path = os.path.join(nonpedestrianpath, fn)
+            print img_path
+            img = netpbdmfile.imread(img_path)
+            img = numpy.array(img)
+            nonpedestrian_imgs.append(img)
+
+    n_pedestrian = 2*4800
+    n_nonpedestrian = 2*5000
+    n_total = n_pedestrian + n_nonpedestrian
 
     pedestrian_imgs = numpy.array(pedestrian_imgs).reshape((n_pedestrian, -1))
 
@@ -84,8 +85,8 @@ def GetPedestrianData(path):
 
 def GetPedestrianDataset():
 
-    train_data_images, train_data_labels = GetPedestrianData('/Users/adrianogil/workspace/datasets/pedestrian/1/')
-    test_data_images, test_data_labels = GetPedestrianData('/Users/adrianogil/workspace/datasets/pedestrian/T1/')
+    train_data_images, train_data_labels = GetPedestrianData(['/Users/adrianogil/workspace/datasets/pedestrian/1/','/Users/adrianogil/workspace/datasets/pedestrian/2/'])
+    test_data_images, test_data_labels = GetPedestrianData(['/Users/adrianogil/workspace/datasets/pedestrian/T1/','/Users/adrianogil/workspace/datasets/pedestrian/T2/'])
 
     train_dataset = IndexableDataset({
             'features': train_data_images,
@@ -110,6 +111,15 @@ class TupleMapping(object):
 def main(dataset_name='sklearn', num_epochs=100):
     x = tensor.matrix('features')
     y = tensor.lmatrix('targets')
+
+    def random_flip(data):
+            feat, targ = data
+            flip_x = 2 * numpy.random.randint(2) - 1
+            flip_y = 2 * numpy.random.randint(2) - 1
+
+            new_feat = feat.reshape((-1,18,36,1))[:,::flip_x, ::flip_y, :].reshape((-1, 648))
+
+            return new_feat, targ
 
     logistic_regressor = LogisticRegressor(input_dim=648)
     probs = logistic_regressor.get_probs(features=x)
@@ -138,6 +148,11 @@ def main(dataset_name='sklearn', num_epochs=100):
             )
         )
     )
+
+    # train_data_stream = Mapping(
+    #         data_stream=train_data_stream,
+    #         mapping=random_flip
+    #     )
 
     test_data_stream = ForceFloatX(
         data_stream=DataStream(
@@ -177,19 +192,28 @@ def main(dataset_name='sklearn', num_epochs=100):
                                 mapping=TupleMapping(scoring_function),
                                 add_sources=('scores',))
     
-    # display_train = ImageDataStreamDisplay(
-    #     data_stream=copy.deepcopy(train_data_stream),
-    #     image_shape=(18, 36, 1),
-    #     axes=(0, 1, 'c'),
-    #     shift=-127.5,
-    #     rescale=1./127.5
-    # )
+    display_train = ImageDataStreamDisplay(
+        data_stream=copy.deepcopy(train_data_stream),
+        image_shape=(18, 36, 1),
+        axes=(0, 1, 'c'),
+        shift=-127.5,
+        rescale=1./127.5
+    )
 
-    # images_displayer = DisplayImage(
-    #     image_getters=[display_train],
-    #     titles=['Training examples']
-    # )
-    # plotters.append(images_displayer)
+    weight_display = WeightDisplay(
+        weights=params[0],
+        transpose=(1, 0),
+        image_shape=(18, 36, 1),
+        axes=(0, 1, 'c'),
+        shift=-0.5,
+        rescale=2.
+    )
+
+    images_displayer = DisplayImage(
+        image_getters=[display_train, weight_display],
+        titles=['Training examples', 'Weights']
+    )
+    plotters.append(images_displayer)
 
     extensions.append(PlotManager('Pedestrian Dataset', 
                                   plotters=plotters,
@@ -215,3 +239,4 @@ if __name__ == "__main__":
                         help=("Dataset to use."))
     args = parser.parse_args()
     main(dataset_name=args.dataset, num_epochs=args.num_epochs)
+
