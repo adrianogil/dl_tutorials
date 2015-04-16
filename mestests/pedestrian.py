@@ -22,6 +22,9 @@ from blocks.extensions.monitoring import (DataStreamMonitoring,
                                           TrainingDataMonitoring)
 from blocks.main_loop import MainLoop
 
+from dl_tutorials.part_2_mlp.neural_network import NeuralNetwork
+from blocks.algorithms import GradientDescent, Momentum
+
 
 ######
 import os
@@ -112,54 +115,46 @@ def main(dataset_name='sklearn', num_epochs=100):
     x = tensor.matrix('features')
     y = tensor.lmatrix('targets')
 
-    def random_flip(data):
-            feat, targ = data
-            flip_x = 2 * numpy.random.randint(2) - 1
-            flip_y = 2 * numpy.random.randint(2) - 1
-
-            new_feat = feat.reshape((-1,18,36,1))[:,::flip_x, ::flip_y, :].reshape((-1, 648))
-
-            return new_feat, targ
-
-    logistic_regressor = LogisticRegressor(input_dim=648)
-    probs = logistic_regressor.get_probs(features=x)
-    params = logistic_regressor.get_params()
-    cost = logistic_regressor.get_cost(probs=probs, targets=y).mean()
+    neural_net = NeuralNetwork(input_dim=648, n_hidden=[20])
+    probs = neural_net.get_probs(features=x)
+    params = neural_net.get_params()
+    cost = neural_net.get_cost(probs=probs, targets=y).mean()
     cost.name = 'cost'
-    misclassification = logistic_regressor.get_misclassification(
+    misclassification = neural_net.get_misclassification(
         probs=probs, targets=y
     ).mean()
     misclassification.name = 'misclassification'
 
-    # train_dataset, test_dataset = build_2d_datasets(dataset_name=dataset_name)
     train_dataset, test_dataset = GetPedestrianDataset()
 
-    algorithm = blocks.algorithms.GradientDescent(
+    algorithm = GradientDescent(
         cost=cost,
         params=params,
-        step_rule=blocks.algorithms.Scale(learning_rate=0.1))
+        step_rule=Momentum(learning_rate=0.1,
+                           momentum=0.1))
 
-    train_data_stream = ForceFloatX(
+    train_data_stream = DataStream(
+        dataset=train_dataset,
+        iteration_scheme=SequentialScheme(
+            examples=train_dataset.num_examples,
+            batch_size=40,
+        )
+    )
+    valid_data_stream = ForceFloatX(
         data_stream=DataStream(
-            dataset=train_dataset,
+            dataset=test_dataset,
             iteration_scheme=SequentialScheme(
-                examples=train_dataset.num_examples,
-                batch_size=20,
+                examples=range(100) + range(2000, 2100),
+                batch_size=400,
             )
         )
     )
-
-    # train_data_stream = Mapping(
-    #         data_stream=train_data_stream,
-    #         mapping=random_flip
-    #     )
-
     test_data_stream = ForceFloatX(
         data_stream=DataStream(
             dataset=test_dataset,
             iteration_scheme=SequentialScheme(
                 examples=test_dataset.num_examples,
-                batch_size=20,
+                batch_size=400,
             )
         )
     )
@@ -173,6 +168,10 @@ def main(dataset_name='sklearn', num_epochs=100):
         [cost, misclassification],
         test_data_stream,
         prefix='test'))
+    extensions.append(DataStreamMonitoring(
+        [cost, misclassification],
+        valid_data_stream,
+        prefix='valid'))
     extensions.append(TrainingDataMonitoring(
         [cost, misclassification],
         prefix='train',
@@ -191,32 +190,13 @@ def main(dataset_name='sklearn', num_epochs=100):
     score_test_stream = Mapping(data_stream=copy.deepcopy(test_data_stream),
                                 mapping=TupleMapping(scoring_function),
                                 add_sources=('scores',))
-    
-    display_train = ImageDataStreamDisplay(
-        data_stream=copy.deepcopy(train_data_stream),
-        image_shape=(18, 36, 1),
-        axes=(0, 1, 'c'),
-        shift=-127.5,
-        rescale=1./127.5
-    )
+    # plotters.append(Display2DData(
+    #     data_streams=[score_train_stream, copy.deepcopy(train_data_stream),
+    #                   score_test_stream, copy.deepcopy(test_data_stream)],
+    #     radius=0.01
+    # ))
 
-    weight_display = WeightDisplay(
-        weights=params[0],
-        transpose=(1, 0),
-        image_shape=(18, 36, 1),
-        axes=(0, 1, 'c'),
-        shift=-0.5,
-        rescale=2.
-    )
-
-    images_displayer = DisplayImage(
-        image_getters=[display_train, weight_display],
-        titles=['Training examples', 'Weights']
-    )
-    plotters.append(images_displayer)
-
-    extensions.append(PlotManager('Pedestrian Dataset', 
-                                  plotters=plotters,
+    extensions.append(PlotManager('Pedestrian classification using Neural NeuralNetwork', plotters=plotters,
                                   after_epoch=False,
                                   every_n_epochs=50,
                                   after_training=True))
@@ -231,12 +211,13 @@ def main(dataset_name='sklearn', num_epochs=100):
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    parser = ArgumentParser("An example of training a logistic regression on"
+    parser = ArgumentParser("An example of training an MLP on"
                             " a 2D dataset.")
-    parser.add_argument("--num-epochs", type=int, default=1000,
+    parser.add_argument("--num-epochs", type=int, default=100,
                         help="Number of training epochs to do.")
     parser.add_argument("--dataset", default="sklearn", nargs="?",
                         help=("Dataset to use."))
     args = parser.parse_args()
     main(dataset_name=args.dataset, num_epochs=args.num_epochs)
+
 
